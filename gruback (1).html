@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gruback - Gestión de grúas</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:Arial,Helvetica,sans-serif;background:#f4f5f7;color:#172033;overflow:hidden}
+
+#app{
+  height:100vh;
+  width:100%;
+  display:grid;
+  grid-template-columns:370px minmax(0,1fr);
+}
+
+#sidebar{
+  height:100%;
+  min-width:0;
+  background:#fff;
+  border-right:1px solid #dfe3e8;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  z-index:1000;
+}
+
+.brand{padding:18px 18px 12px;border-bottom:1px solid #eceff2}
+.brand h1{margin:0;font-size:28px;letter-spacing:-1px}
+.brand p{margin:4px 0 0;color:#6b7280;font-size:12px}
+
+.section{padding:12px 16px;border-bottom:1px solid #eceff2}
+label,.section-title{display:block;font-size:11px;font-weight:700;color:#4b5563;margin-bottom:6px}
+
+input[type=text],input[type=number]{
+  width:100%;height:38px;border:1px solid #cfd5dc;border-radius:8px;
+  padding:0 10px;font-size:13px;outline:none;background:#fff
+}
+input:focus{border-color:#e0aa00;box-shadow:0 0 0 3px rgba(224,170,0,.12)}
+
+.searchbox{position:relative}
+#suggestions{
+  display:none;position:absolute;left:0;right:0;top:43px;background:white;
+  border:1px solid #d9dee5;border-radius:9px;box-shadow:0 8px 25px rgba(0,0,0,.15);
+  z-index:5000;max-height:260px;overflow:auto
+}
+.suggestion{padding:9px 10px;border-bottom:1px solid #edf0f2;cursor:pointer;font-size:12px}
+.suggestion:hover{background:#fff8dc}
+.suggestion strong{display:block}
+.suggestion span{color:#69717c}
+
+.row{display:flex;gap:7px}
+button{
+  border:0;border-radius:8px;padding:9px 10px;font-weight:700;font-size:12px;
+  cursor:pointer
+}
+.primary{background:#f2b705;color:#20252d}
+.secondary{background:#edf0f3;color:#273142}
+.danger{background:#fee2e2;color:#991b1b}
+button:hover{filter:brightness(.97)}
+
+.origin{
+  margin-top:8px;padding:9px 10px;background:#fffbed;border:1px solid #f0d77a;
+  border-radius:8px;font-size:11px;line-height:1.35
+}
+
+.scroll{flex:1;overflow:auto;min-height:0}
+.list{padding:0 16px 10px}
+.listhead{display:flex;justify-content:space-between;align-items:center;margin:12px 0 7px}
+.listhead h2{font-size:13px;margin:0}
+.count{background:#edf0f3;border-radius:999px;padding:3px 7px;font-size:10px;font-weight:bold}
+.truck{
+  display:flex;gap:7px;align-items:flex-start;border:1px solid #e1e5e9;
+  border-radius:8px;padding:8px;margin-bottom:6px;background:#fff
+}
+.truck input{margin-top:2px;accent-color:#e0aa00}
+.truck-main{flex:1;min-width:0;cursor:pointer}
+.truck-name{font-size:12px;font-weight:700}
+.truck-distance{font-size:11px;color:#5c6571;margin-top:2px}
+.truck-phone{font-size:10px;color:#7b8490;margin-top:2px}
+
+.manual{
+  border-top:1px solid #dfe3e8;
+  background:#fafbfc;
+  padding:11px 16px;
+  max-height:245px;
+  overflow:auto;
+}
+.manual-title{font-size:12px;font-weight:800;margin-bottom:8px}
+.manual-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.manual-grid .full{grid-column:1/-1}
+.manual-actions{display:flex;gap:6px;margin-top:7px}
+.manual-actions button{flex:1}
+
+.help{
+  font-size:10px;color:#727b86;line-height:1.35;margin-top:6px
+}
+
+#mapWrap{position:relative;min-width:0;height:100%;width:100%;overflow:hidden}
+#map{position:absolute;inset:0;width:100%;height:100%;background:#dfe8ef}
+
+.legend{
+  position:absolute;right:12px;top:12px;z-index:1000;background:#fff;
+  border-radius:9px;padding:9px 11px;box-shadow:0 2px 10px rgba(0,0,0,.18);
+  font-size:11px
+}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+.yellow{background:#f2b705}.blue{background:#2563eb}
+
+@media(max-width:800px){
+  body{overflow:auto}
+  #app{height:auto;min-height:100vh;grid-template-columns:1fr;grid-template-rows:52vh auto}
+  #mapWrap{height:52vh;grid-row:1}
+  #sidebar{grid-row:2;height:auto;max-height:48vh}
+  .scroll{max-height:260px}
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <aside id="sidebar">
+    <div class="brand">
+      <h1>GRUBACK</h1>
+      <p>Localizador y gestión de grúas</p>
+    </div>
+
+    <div class="section">
+      <label for="address">BUSCAR DIRECCIÓN EN ARGENTINA</label>
+      <div class="searchbox">
+        <input id="address" type="text" placeholder="Ej.: Sarmiento 1212" autocomplete="off">
+        <div id="suggestions"></div>
+      </div>
+      <div class="row" style="margin-top:7px">
+        <button class="primary" id="gpsBtn">📍 Mi ubicación</button>
+        <button class="secondary" id="clearBtn">Limpiar origen</button>
+      </div>
+      <div class="origin">
+        <b>Origen:</b>
+        <div id="originText">Hacé click en el mapa o buscá una dirección.</div>
+      </div>
+    </div>
+
+    <div class="section" style="padding-top:8px;padding-bottom:8px">
+      <div class="row">
+        <button class="secondary" id="toggleAllBtn">☑ Mostrar grúas</button>
+        <button class="secondary" id="fitBtn">Ver todas</button>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <div class="list">
+        <div class="listhead">
+          <h2>Grúas hasta 75 km</h2><span class="count" id="count75">0</span>
+        </div>
+        <div id="list75"><small style="color:#777">Sin origen seleccionado.</small></div>
+
+        <div class="listhead">
+          <h2>Grúas entre 75 y 100 km</h2><span class="count" id="count100">0</span>
+        </div>
+        <div id="list100"><small style="color:#777">Sin origen seleccionado.</small></div>
+      </div>
+    </div>
+
+    <!-- PLANILLA -->
+    <div class="manual">
+      <div class="manual-title">Planilla de grúas</div>
+      <label for="csvUrl">Cargar planilla</label>
+      <input id="csvUrl" type="text" placeholder="Pegá el link CSV de Google Sheets">
+      <div class="manual-actions">
+        <button class="primary" id="loadCsvBtn">Cargar planilla</button>
+        <button class="secondary" id="fileBtn">Abrir CSV</button>
+      </div>
+      <input id="fileInput" type="file" accept=".csv,text/csv" hidden>
+      <div class="help">
+        Columnas recomendadas: <b>Nombre, Lat, Long, Telefono</b>.<br>
+        También acepta una columna <b>Base</b> con formato lat,long.
+        <br><br>
+        <a href="https://support.google.com/docs/answer/183965" target="_blank">¿Cómo consigo ese link?</a>
+      </div>
+    </div>
+
+    <!-- CARGA MANUAL -->
+    <div class="manual">
+      <div class="manual-title">Cargar grúa manualmente</div>
+
+      <div class="manual-grid">
+        <input class="full" id="manualName" type="text" placeholder="Nombre de la grúa">
+        <input id="manualPhone" type="text" placeholder="Teléfono (opcional)">
+        <input id="manualAddress" type="text" placeholder="Dirección (opcional)">
+        <input id="manualLat" type="number" step="any" placeholder="Latitud">
+        <input id="manualLon" type="number" step="any" placeholder="Longitud">
+      </div>
+
+      <div class="manual-actions">
+        <button class="primary" id="addTruckBtn">Agregar grúa</button>
+        <button class="secondary" id="manualMapBtn">Elegir en mapa</button>
+      </div>
+
+      <div class="help">
+        Podés cargar las coordenadas manualmente o tocar <b>Elegir en mapa</b> y después seleccionar la ubicación.
+      </div>
+    </div>
+  </aside>
+
+  <main id="mapWrap">
+    <div id="map"></div>
+    <div class="legend">
+      <div><span class="dot yellow"></span>Origen</div>
+      <div><span class="dot blue"></span>Grúa activa</div>
+      <div style="color:#737b86;margin-top:3px">75 km / 100 km</div>
+    </div>
+  </main>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+(function(){
+"use strict";
+
+/*
+  GRUBACK
+  - Leaflet
+  - Teselas Esri
+  - Geocodificación Photon
+  - Grúas guardadas en localStorage
+*/
+
+const map = L.map("map", {
+  center: [-34.60,-58.38],
+  zoom: 5,
+  zoomControl: true,
+  preferCanvas: true
+});
+
+/* Proveedor de mapa sin API key.
+   Si este proveedor no responde en una red concreta,
+   se puede cambiar por otro sin tocar el resto de Gruback. */
+L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  {
+    maxZoom: 19,
+    attribution: "Tiles &copy; Esri | OpenStreetMap contributors",
+    crossOrigin: true
+  }
+).addTo(map);
+
+/* Fuerza a Leaflet a calcular correctamente el tamaño real del mapa. */
+function resizeMap(){
+  setTimeout(function(){ map.invalidateSize(true); }, 50);
+  setTimeout(function(){ map.invalidateSize(true); }, 300);
+  setTimeout(function(){ map.invalidateSize(true); }, 1000);
+}
+window.addEventListener("resize", resizeMap);
+window.addEventListener("load", resizeMap);
+resizeMap();
+
+const trucks = [];
+const markerLayer = L.layerGroup().addTo(map);
+
+let origin = null;
+let originMarker = null;
+let circle75 = null;
+let circle100 = null;
+let allVisible = true;
+let chooseManualOnMap = false;
+let searchTimer = null;
+
+const $ = id => document.getElementById(id);
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+function addTruck(data, save=true){
+  const lat = Number(String(data.lat).replace(",","."));
+  const lon = Number(String(data.lon).replace(",",".")); 
+  const name = String(data.name || "").trim();
+
+  if(!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if(lat < -56 || lat > -20 || lon < -74 || lon > -52) {
+    alert("Las coordenadas ingresadas no parecen corresponder a Argentina.");
+    return false;
+  }
+
+  const t = {
+    id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random())),
+    name:name,
+    phone:String(data.phone || "").trim(),
+    address:String(data.address || "").trim(),
+    lat:lat,
+    lon:lon,
+    active:data.active !== false,
+    marker:null
+  };
+
+  trucks.push(t);
+  createMarker(t);
+
+  if(save) saveTrucks();
+  recalculate();
+  return true;
+}
+
+function createMarker(t){
+  t.marker = L.circleMarker([t.lat,t.lon],{
+    radius:7,
+    color:"#174ea6",
+    weight:2,
+    fillColor:"#2563eb",
+    fillOpacity:.9
+  });
+
+  let popup = "<b>"+escapeHtml(t.name)+"</b>";
+  if(t.address) popup += "<br>📍 "+escapeHtml(t.address);
+  if(t.phone) popup += "<br>📞 "+escapeHtml(t.phone);
+  popup += "<br><small>"+t.lat.toFixed(5)+", "+t.lon.toFixed(5)+"</small>";
+
+  t.marker.bindPopup(popup);
+}
+
+function refreshMarkers(){
+  markerLayer.clearLayers();
+  trucks.forEach(t => {
+    if(t.active && allVisible) t.marker.addTo(markerLayer);
+  });
+}
+
+function setOrigin(lat,lon,label){
+  origin={lat,lon,label:label || (lat.toFixed(5)+", "+lon.toFixed(5))};
+
+  if(originMarker) map.removeLayer(originMarker);
+  if(circle75) map.removeLayer(circle75);
+  if(circle100) map.removeLayer(circle100);
+
+  originMarker=L.circleMarker([lat,lon],{
+    radius:9,
+    color:"#9b7400",
+    weight:2,
+    fillColor:"#f2b705",
+    fillOpacity:1
+  }).addTo(map);
+
+  circle75=L.circle([lat,lon],{
+    radius:75000,
+    color:"#d29f00",
+    weight:2,
+    fillOpacity:.05
+  }).addTo(map);
+
+  circle100=L.circle([lat,lon],{
+    radius:100000,
+    color:"#6b7280",
+    weight:2,
+    dashArray:"7 6",
+    fillOpacity:.025
+  }).addTo(map);
+
+  $("originText").textContent=origin.label;
+  map.setView([lat,lon],Math.max(map.getZoom(),7));
+  recalculate();
+}
+
+map.on("click",function(e){
+  if(chooseManualOnMap){
+    $("manualLat").value=e.latlng.lat.toFixed(6);
+    $("manualLon").value=e.latlng.lng.toFixed(6);
+    chooseManualOnMap=false;
+    $("manualMapBtn").textContent="Elegir en mapa";
+    alert("Coordenadas colocadas en el formulario de la grúa.");
+    return;
+  }
+
+  setOrigin(
+    e.latlng.lat,
+    e.latlng.lng,
+    "Punto seleccionado: "+e.latlng.lat.toFixed(5)+", "+e.latlng.lng.toFixed(5)
+  );
+});
+
+function distanceKm(lat1,lon1,lat2,lon2){
+  const R=6371;
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+    Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+function recalculate(){
+  if(!origin) return;
+
+  const arr=trucks.filter(t=>t.active).map(t=>({
+    truck:t,
+    distance:distanceKm(origin.lat,origin.lon,t.lat,t.lon)
+  })).sort((a,b)=>a.distance-b.distance);
+
+  renderList("list75","count75",arr.filter(x=>x.distance<=75));
+  renderList("list100","count100",arr.filter(x=>x.distance>75 && x.distance<=100));
+}
+
+function renderList(listId,countId,arr){
+  $(countId).textContent=arr.length;
+  const el=$(listId);
+  el.innerHTML="";
+
+  if(!arr.length){
+    el.innerHTML='<small style="color:#777">No hay grúas en este rango.</small>';
+    return;
+  }
+
+  arr.forEach(item=>{
+    const t=item.truck;
+    const row=document.createElement("div");
+    row.className="truck";
+    row.innerHTML=
+      '<input type="checkbox" '+(t.active?"checked":"")+' title="Activar/desactivar">'+
+      '<div class="truck-main">'+
+      '<div class="truck-name">'+escapeHtml(t.name)+'</div>'+
+      '<div class="truck-distance">'+item.distance.toFixed(1)+' km</div>'+
+      (t.phone?'<div class="truck-phone">📞 '+escapeHtml(t.phone)+'</div>':'')+
+      '</div>';
+
+    row.querySelector("input").addEventListener("change",function(){
+      t.active=this.checked;
+      refreshMarkers();
+      saveTrucks();
+      recalculate();
+    });
+
+    row.querySelector(".truck-main").addEventListener("click",function(){
+      map.setView([t.lat,t.lon],10);
+      t.marker.openPopup();
+    });
+
+    el.appendChild(row);
+  });
+}
+
+/* ---------------- ORIGEN ---------------- */
+
+$("clearBtn").addEventListener("click",function(){
+  origin=null;
+  if(originMarker){map.removeLayer(originMarker);originMarker=null}
+  if(circle75){map.removeLayer(circle75);circle75=null}
+  if(circle100){map.removeLayer(circle100);circle100=null}
+
+  $("originText").textContent="Hacé click en el mapa o buscá una dirección.";
+  $("count75").textContent="0";
+  $("count100").textContent="0";
+  $("list75").innerHTML='<small style="color:#777">Sin origen seleccionado.</small>';
+  $("list100").innerHTML='<small style="color:#777">Sin origen seleccionado.</small>';
+});
+
+$("gpsBtn").addEventListener("click",function(){
+  if(!navigator.geolocation){
+    alert("Este navegador no permite geolocalización.");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    p=>setOrigin(p.coords.latitude,p.coords.longitude,"Mi ubicación actual"),
+    ()=>alert("No se pudo obtener la ubicación. Permití el acceso a la ubicación del navegador."),
+    {enableHighAccuracy:true,timeout:10000,maximumAge:30000}
+  );
+});
+
+$("toggleAllBtn").addEventListener("click",function(){
+  allVisible=!allVisible;
+  this.textContent=allVisible?"☑ Mostrar grúas":"☐ Ocultar grúas";
+  refreshMarkers();
+});
+
+$("fitBtn").addEventListener("click",function(){
+  const active=trucks.filter(t=>t.active);
+  if(!active.length)return;
+  const bounds=L.latLngBounds(active.map(t=>[t.lat,t.lon]));
+  if(origin)bounds.extend([origin.lat,origin.lon]);
+  map.fitBounds(bounds.pad(.15));
+  resizeMap();
+});
+
+/* ---------------- GRÚA MANUAL ---------------- */
+
+$("manualMapBtn").addEventListener("click",function(){
+  chooseManualOnMap=!chooseManualOnMap;
+  this.textContent=chooseManualOnMap?"⛳ Elegí un punto":"Elegir en mapa";
+});
+
+$("addTruckBtn").addEventListener("click",function(){
+  const name=$("manualName").value.trim();
+  const phone=$("manualPhone").value.trim();
+  const address=$("manualAddress").value.trim();
+  const lat=$("manualLat").value.trim();
+  const lon=$("manualLon").value.trim();
+
+  if(!name){
+    alert("Ingresá el nombre de la grúa.");
+    return;
+  }
+  if(!lat || !lon){
+    alert("Ingresá latitud y longitud o usá 'Elegir en mapa'.");
+    return;
+  }
+
+  if(addTruck({name,phone,address,lat,lon},true)){
+    $("manualName").value="";
+    $("manualPhone").value="";
+    $("manualAddress").value="";
+    $("manualLat").value="";
+    $("manualLon").value="";
+    alert("Grúa agregada correctamente.");
+  }
+});
+
+/* ---------------- BUSCADOR ---------------- */
+
+$("address").addEventListener("input",function(){
+  clearTimeout(searchTimer);
+  const q=this.value.trim();
+  if(q.length<3){hideSuggestions();return}
+  searchTimer=setTimeout(()=>searchPhoton(q),500);
+});
+
+$("address").addEventListener("keydown",function(e){
+  if(e.key==="Enter"){
+    e.preventDefault();
+    const q=this.value.trim();
+    if(q)searchPhoton(q,true);
+  }
+});
+
+async function searchPhoton(q,first=false){
+  try{
+    const url="https://photon.komoot.io/api/?q="+
+      encodeURIComponent(q+", Argentina")+
+      "&limit=10&bbox=-73.6,-55.1,-53.6,-21.7";
+
+    const r=await fetch(url);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+
+    const data=await r.json();
+    const features=(data.features||[]).filter(f=>{
+      const p=f.properties||{};
+      return p.countrycode==="AR" || String(p.country||"").toLowerCase()==="argentina";
+    });
+
+    if(!features.length){
+      hideSuggestions();
+      if(first)alert("No encontré esa dirección en Argentina.");
+      return;
+    }
+
+    if(first)selectFeature(features[0]);
+    else showSuggestions(features);
+  }catch(e){
+    console.error(e);
+    hideSuggestions();
+    if(first)alert("No se pudo consultar el buscador. Revisá tu conexión.");
+  }
+}
+
+function showSuggestions(features){
+  const box=$("suggestions");
+  box.innerHTML="";
+
+  features.forEach(f=>{
+    const p=f.properties||{};
+    const a=formatAddress(p);
+    const d=document.createElement("div");
+    d.className="suggestion";
+    d.innerHTML="<strong>"+escapeHtml(a.main)+"</strong><span>"+escapeHtml(a.secondary)+"</span>";
+    d.addEventListener("click",()=>selectFeature(f));
+    box.appendChild(d);
+  });
+
+  box.style.display="block";
+}
+
+function selectFeature(f){
+  const coords=f.geometry.coordinates;
+  const a=formatAddress(f.properties||{});
+
+  $("address").value=a.full;
+  hideSuggestions();
+  setOrigin(coords[1],coords[0],a.full);
+}
+
+function formatAddress(p){
+  const street=p.street||p.name||"";
+  const number=p.housenumber?(" "+p.housenumber):"";
+  const city=p.city||p.town||p.village||p.municipality||"";
+  const state=p.state||"";
+  const country=p.country||"Argentina";
+
+  const main=(street+number).trim()||p.name||"Ubicación";
+  const secondary=[city,state,country].filter(Boolean).join(", ");
+
+  return {
+    main:main,
+    secondary:secondary,
+    full:main+(secondary?", "+secondary:"")
+  };
+}
+
+function hideSuggestions(){
+  $("suggestions").style.display="none";
+  $("suggestions").innerHTML="";
+}
+
+document.addEventListener("click",function(e){
+  if(!e.target.closest(".searchbox"))hideSuggestions();
+});
+
+/* ---------------- CSV ---------------- */
+
+$("loadCsvBtn").addEventListener("click",async function(){
+  const url=$("csvUrl").value.trim();
+
+  if(!url){
+    alert("Pegá primero el link CSV de la planilla.");
+    return;
+  }
+
+  try{
+    const r=await fetch(url);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const text=await r.text();
+    importCSV(text);
+  }catch(e){
+    console.error(e);
+    alert("No se pudo cargar la planilla. Verificá que Google Sheets esté publicada como CSV y que el enlace sea público.");
+  }
+});
+
+$("fileBtn").addEventListener("click",()=> $("fileInput").click());
+
+$("fileInput").addEventListener("change",async function(){
+  const file=this.files[0];
+  if(!file)return;
+  importCSV(await file.text());
+  this.value="";
+});
+
+function importCSV(text){
+  const rows=parseCSV(text);
+  if(rows.length<2){
+    alert("El archivo no contiene datos.");
+    return;
+  }
+
+  const headers=rows[0].map(normalizeHeader);
+  let added=0;
+
+  for(let i=1;i<rows.length;i++){
+    const row=rows[i];
+    const obj={};
+    headers.forEach((h,j)=>obj[h]=(row[j]||"").trim());
+
+    const name=obj.nombre||obj.name||obj.grua||"";
+    const phone=obj.telefono||obj.tel||obj.phone||"";
+    const address=obj.direccion||obj.address||"";
+
+    let lat=parseFloat(String(obj.lat||obj.latitude||"").replace(",","."));
+    let lon=parseFloat(String(obj.long||obj.lng||obj.lon||obj.longitude||"").replace(",",".")); 
+
+    if((!Number.isFinite(lat)||!Number.isFinite(lon))&&obj.base){
+      const p=obj.base.split(/[;, ]+/).map(Number);
+      if(p.length>=2){lat=p[0];lon=p[1]}
+    }
+
+    if(name&&Number.isFinite(lat)&&Number.isFinite(lon)){
+      if(addTruck({name,phone,address,lat,lon},false))added++;
+    }
+  }
+
+  saveTrucks();
+  refreshMarkers();
+  recalculate();
+  alert("Se agregaron "+added+" grúas.");
+}
+
+function parseCSV(text){
+  const rows=[];
+  let row=[],field="",quoted=false;
+
+  for(let i=0;i<text.length;i++){
+    const c=text[i],n=text[i+1];
+
+    if(c==='"'&&quoted&&n==='"'){field+='"';i++;continue}
+    if(c==='"'){quoted=!quoted;continue}
+
+    if(c===","&&!quoted){row.push(field);field="";continue}
+
+    if((c==="\n"||c==="\r")&&!quoted){
+      if(c==="\r"&&n==="\n")i++;
+      row.push(field);field="";
+      if(row.some(v=>v.trim()!==""))rows.push(row);
+      row=[];
+      continue;
+    }
+
+    field+=c;
+  }
+
+  row.push(field);
+  if(row.some(v=>v.trim()!==""))rows.push(row);
+  return rows;
+}
+
+function normalizeHeader(s){
+  return String(s).toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/\s+/g,"").replace(/_/g,"");
+}
+
+/* ---------------- GUARDADO ---------------- */
+
+function saveTrucks(){
+  localStorage.setItem("gruback_trucks",JSON.stringify(
+    trucks.map(t=>({
+      name:t.name,phone:t.phone,address:t.address,
+      lat:t.lat,lon:t.lon,active:t.active
+    }))
+  ));
+}
+
+function loadTrucks(){
+  try{
+    const saved=JSON.parse(localStorage.getItem("gruback_trucks")||"[]");
+    if(Array.isArray(saved)){
+      saved.forEach(t=>addTruck(t,false));
+    }
+  }catch(e){console.error(e)}
+}
+
+/* Ejemplos iniciales SOLO si no existe ninguna grúa guardada. */
+function addExamples(){
+  if(trucks.length)return;
+  addTruck({name:"Grúa Santa Fe",lat:-31.6333,lon:-60.7000},false);
+  addTruck({name:"Grúa Paraná",lat:-31.7413,lon:-60.5115},false);
+  addTruck({name:"Grúa Rafaela",lat:-31.2503,lon:-61.4867},false);
+  addTruck({name:"Grúa Rosario",lat:-32.9442,lon:-60.6505},false);
+}
+
+/* Inicio */
+loadTrucks();
+addExamples();
+refreshMarkers();
+resizeMap();
+
+})();
+</script>
+</body>
+</html>
